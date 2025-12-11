@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>TEST — Carte Leaflet</title>
+
+  <!-- Leaflet version fixe -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <style>
+    html,body { height:100%; margin:0; }
+    #map { height:100vh; width:100%; }
+    /* debugging helper: afficher bordure si la div existe */
+    #map.debug { border: 3px dashed #666; }
+  </style>
+</head>
+<body>
+  <div id="map" class="debug"></div>
+
+  <!-- Leaflet JS (version fixe) -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+  (function(){
+    try {
+      // Attendre le chargement complet du DOM
+      document.addEventListener('DOMContentLoaded', function() {
+        const mapEl = document.getElementById('map');
+        if(!mapEl) {
+          console.error('Element #map introuvable');
+          return;
+        }
+
+        // Initialisation
+        const map = L.map('map', {preferCanvas:true}).setView([-2.5, 28.8], 12);
+
+        // TileLayer (OpenStreetMap)
+        const tiles = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          maxZoom: 19,
+          attribution: '&copy; OpenStreetMap contributors'
+        });
+
+        tiles.on('tileerror', function(err){
+          console.error('Tile error', err);
+        });
+
+        tiles.addTo(map);
+
+        // vérification d'affichage : placer un marker central
+        L.marker([-2.5, 28.8]).addTo(map).bindPopup('Centre de test — Bukavu').openPopup();
+
+        // Si la carte est dans un conteneur caché (bootstrap tab/modal), invalider la taille après un court délai
+        setTimeout(function(){ try { map.invalidateSize(); console.log('invalidateSize done'); } catch(e){ console.warn(e); } }, 300);
+
+        // Test simple : requêter l'API incidents (ne bloque pas l'affichage)
+        fetch('/api/incidents/').then(r=>{
+          if(!r.ok) {
+            console.warn('API /api/incidents/ returned', r.status);
+            return r.text().then(t => console.log('API response text:', t));
+          }
+          return r.json();
+        }).then(json=>{
+          if(!json) return;
+          const items = json.results || json;
+          console.log('incidents loaded (test):', (items && items.length) ? items.length : 0);
+        }).catch(e=>{
+          console.warn('Erreur fetch API (non bloquante):', e);
+        });
+      });
+    } catch(err) {
+      console.error('Erreur initialisation carte:', err);
+    }
+  })();
+  </script>
+</body>
+</html>

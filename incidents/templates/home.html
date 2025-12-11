@@ -1,0 +1,28 @@
+{% extends 'base.html' %}
+{% block content %}
+<h1 class="mb-3">Tableau de bord</h1>
+
+<div class="row mb-4">
+  <div class="col-md-6">
+    <div class="card card-compact">
+      <div class="card-body">
+        <h5 class="card-title">Carte incendiaire</h5>
+        <div id="map" class="mb-2"></div>
+        <small class="text-muted">Points d'incident affichés depuis l'API</small>
+        
+      </div>
+    </div>
+  </div>
+
+  <div class="col-md-6">
+    <div class="card card-compact">
+      <div class="card-body">
+        <h5 class="card-title">Statistiques rapides</h5>
+        <div id="stats"></div>
+        <a href="{% url 'prediction' %}" class="btn btn-primary btn-sm mt-2">Aller aux prédictions</a>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}

@@ -1,0 +1,7 @@
+Django==5.1.6
+djangorestframework
+django-filter
+drf-spectacular
+Pillow
+django-environ
+pytest-django
