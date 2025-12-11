@@ -19,44 +19,66 @@ document.addEventListener('DOMContentLoaded', function() {
   const mapEl = document.getElementById('map');
   const spinner = document.getElementById('map-spinner');
 
-  // Vérification : Leaflet présent ?
   if (typeof L === 'undefined') {
-    // cache la spinner et affiche message d'erreur visible à la place de la carte
     if (spinner) spinner.style.display = 'none';
     if (mapEl) {
       mapEl.style.display = 'block';
-      mapEl.innerHTML = '<div class="alert alert-danger m-3">Leaflet n\'a pas été chargé. Vérifie que les liens CSS/JS Leaflet sont inclus dans base.html (head) et que tu as une connexion Internet pour le CDN.</div>';
+      mapEl.innerHTML = '<div class="alert alert-danger m-3">Leaflet non chargé. Vérifie les CDN dans base.html.</div>';
     }
-    console.error('Leaflet non chargé (L is undefined). Vérifie les CDN/link dans base.html.');
+    console.error('Leaflet non chargé (L is undefined).');
     return;
   }
 
-  // Assure que le conteneur a une hauteur visible
   if (mapEl && (!mapEl.style.height || mapEl.style.height === '')) {
     mapEl.style.height = '60vh';
   }
-
-  // show map, hide spinner
   if (spinner) spinner.style.display = 'none';
   if (mapEl) mapEl.style.display = 'block';
 
-  // Initialise la carte
   let map;
   try {
     map = L.map('map').setView([-2.5, 28.8], 12);
   } catch (e) {
     console.error('Erreur création map Leaflet:', e);
-    if (mapEl) mapEl.innerHTML = '<div class="alert alert-danger m-3">Impossible d\'initialiser la carte. Regarde la console pour plus de détails.</div>';
+    if (mapEl) mapEl.innerHTML = '<div class="alert alert-danger m-3">Impossible d\'initialiser la carte.</div>';
     return;
   }
 
-  // TileLayer (version fixe pour éviter 404)
-  L.tileLayer('http://{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', {
-  maxZoom: 20,
-  subdomains:['mt0','mt1','mt2','mt3'],
-  attribution: 'Google'
-}).addTo(map);
+  // Déclarer les layers nommés (important: les variables doivent exister)
+  const satellite = L.tileLayer(
+    'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+    { maxZoom: 20, attribution: 'Tiles © Esri — Source: Esri, Maxar' }
+  );
 
+  const transportation = L.tileLayer(
+    'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}',
+    { maxZoom: 20, attribution: '© Esri Transportation' }
+  );
+
+  const labels = L.tileLayer(
+    'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}',
+    { maxZoom: 20, attribution: '© Esri Boundaries' }
+  );
+
+  // couche routière OSM (nommée)
+  const osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    attribution: '&copy; OpenStreetMap contributors'
+  });
+
+  // composite Satellite + labels (hybrid)
+  const satelliteHybrid = L.layerGroup([satellite, transportation, labels]);
+
+  // contrôles des couches
+  const baseMaps = {
+    "Routier (OSM)": osm,
+    "Satellite + Labels (Esri)": satelliteHybrid
+  };
+
+  // ajoute control et couche par défaut
+  L.control.layers(baseMaps).addTo(map);
+  // mets OSM par défaut (change si tu veux le satellite par défaut)
+  osm.addTo(map);
 
   // Layer group pour incidents
   const incidentsLayer = L.layerGroup().addTo(map);
@@ -88,8 +110,9 @@ document.addEventListener('DOMContentLoaded', function() {
       })
       .then(data => {
         const items = data.results || data;
+        // debug rapide : affiche le nombre d'éléments dans la console
+        console.log('Incidents reçus:', items.length || 0);
         if(!items || items.length === 0){
-          // aucun incident : placer info marker
           L.marker([-2.5, 28.8]).addTo(incidentsLayer).bindPopup('Aucun incident enregistré').openPopup();
           return;
         }
@@ -97,14 +120,13 @@ document.addEventListener('DOMContentLoaded', function() {
       })
       .catch(err => {
         console.error('Erreur lors du chargement des incidents:', err);
-        // affiche message sous la carte
         const s = document.getElementById('stats');
-        if (s) s.innerHTML = '<div class="alert alert-warning">Impossible de charger les incidents (voir console pour erreurs).</div>';
+        if (s) s.innerHTML = '<div class="alert alert-warning">Impossible de charger les incidents (voir console).</div>';
       });
   }
   loadIncidents();
 
-  // charger stats rapides
+  // stats rapides
   fetch('/api/incidents/stats/')
     .then(r => r.json())
     .then(d => {
@@ -137,7 +159,6 @@ document.addEventListener('DOMContentLoaded', function() {
         <li class="nav-item"><a class="nav-link" href="{% url 'prediction' %}">Prédiction</a></li>
         <li class="nav-item"><a class="nav-link" href="{% url 'alert' %}">Alerte</a></li>
         <li class="nav-item"><a class="nav-link" href="{% url 'modelling' %}">Modélisation</a></li>
-        <li class="nav-item"><a class="nav-link" href="{% url 'search' %}">Recherche</a></li>
         <li class="nav-item"><a class="nav-link" href="{% url 'contact' %}">Contact</a></li>
       </ul>
       <form class="d-flex" role="search" id="site-search" onsubmit="event.preventDefault(); window.location='{% url 'search' %}?q='+document.getElementById('q').value;">
