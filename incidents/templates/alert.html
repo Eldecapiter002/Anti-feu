@@ -1,15 +1,287 @@
 {% extends 'base.html' %}
+{% block title %}Alerte — Anti-feu Bukavu{% endblock %}
+
 {% block content %}
-<h1>Alerte</h1>
-<p>Page pour envoyer une alerte aux habitants / pompiers (requiert intégration Twilio / Firebase en backend).</p>
-<div class="card">
-  <div class="card-body">
-    <h5>Envoyer une alerte rapide</h5>
-    <form onsubmit="event.preventDefault(); alert('Envoyer via backend (à implémenter)');">
-      <div class="mb-2"><input class="form-control" placeholder="Titre" required></div>
-      <div class="mb-2"><textarea class="form-control" placeholder="Message" rows="3" required></textarea></div>
-      <button class="btn btn-danger">Envoyer l'alerte</button>
-    </form>
+<h1>Alerte — Signaler un incendie</h1>
+<p>Pour signaler un incendie : clique sur la carte à l'endroit sinistré, remplis les infos et envoie.</p>
+
+<div class="row">
+  <div class="col-md-8">
+    <div class="card mb-3">
+      <div class="card-body">
+        <div id="alert-map" style="height:60vh;"></div>
+        <small class="text-muted">Clique sur la carte pour placer un marqueur. Tu peux déplacer le marqueur en recliquant.</small>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-md-4">
+    <div class="card">
+      <div class="card-body">
+        <h5 class="card-title">Formulaire d'alerte</h5>
+
+        <div id="alert-feedback" style="display:none;"></div>
+
+        <form id="alert-form">
+          <div class="mb-2 row g-2">
+            <div class="col-6">
+              <label class="form-label">Date *</label>
+              <input name="date" type="date" class="form-control" required>
+            </div>
+            <div class="col-6">
+              <label class="form-label">Heure</label>
+              <input name="time" type="time" class="form-control" required>
+            </div>
+          </div>
+
+          <div class="mb-2">
+            <label class="form-label">Cause</label>
+            <select name="cause" class="form-select" required>
+              <option value="electric">Courant électrique</option>
+              <option value="cooking">Cuisson / bois</option>
+              <option value="arson">Incendie criminel</option>
+              <option value="other" selected>Autre</option>
+            </select>
+          </div>
+
+          <div class="mb-2 row g-2">
+            <div class="col-4">
+              <label class="form-label">Maisons</label>
+              <input name="houses_burned" type="number" min="0" class="form-control" required>
+            </div>
+            <div class="col-4">
+              <label class="form-label">Blessés</label>
+              <input name="injured" type="number" min="0" class="form-control" required>
+            </div>
+            <div class="col-4">
+              <label class="form-label">Décès</label>
+              <input name="deaths" type="number" min="0" class="form-control" required>
+            </div>
+          </div>
+
+          <div class="mb-2">
+            <label class="form-label">Notes</label>
+            <textarea name="notes" class="form-control" rows="2"></textarea>
+          </div>
+
+          <!-- champs cachés pour lat/lng remplis par le clic sur la carte -->
+          <input type="hidden" name="latitude" id="alert-lat">
+          <input type="hidden" name="longitude" id="alert-lng">
+
+          <div class="mb-2">
+            <small class="text-muted">Position choisie : <span id="alert-pos">aucune</span></small>
+          </div>
+
+          <div class="d-flex justify-content-between">
+            <button id="btn-reset-pos" type="button" class="btn btn-outline-secondary btn-sm">Réinitialiser la position</button>
+            <button type="submit" class="btn btn-danger">Envoyer l'alerte</button>
+          </div>
+        </form>
+
+        <hr/>
+        <div class="text-muted small mt-2">
+          Remarque : en production, l'envoi d'alerte doit être protégé (authentification + validation).
+        </div>
+
+      </div>
+    </div>
   </div>
 </div>
+<script>
+document.addEventListener('DOMContentLoaded', async function () {
+  // éléments du DOM (doivent exister dans alert.html)
+  const mapEl = document.getElementById('alert-map');
+  const form = document.getElementById('alert-form');
+  const feedback = document.getElementById('alert-feedback');
+  const posSpan = document.getElementById('alert-pos');
+  const inputLat = document.getElementById('alert-lat');
+  const inputLng = document.getElementById('alert-lng');
+  const btnReset = document.getElementById('btn-reset-pos');
+
+  // utilitaire CSRF : utilise window.csrftoken si exposé par base.html sinon fallback
+  const csrftoken = window.csrftoken || (() => {
+    function getCookie(name) {
+      let cookieValue = null;
+      if (document.cookie && document.cookie !== '') {
+        const cookies = document.cookie.split(';');
+        for (let i = 0; i < cookies.length; i++) {
+          const cookie = cookies[i].trim();
+          if (cookie.substring(0, name.length + 1) === (name + '=')) {
+            cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+            break;
+          }
+        }
+      }
+      return cookieValue;
+    }
+    return getCookie('csrftoken');
+  })();
+
+  // reset feedback helper
+  function showFeedback(type, html, timeout=5000) {
+    feedback.style.display = 'block';
+    feedback.innerHTML = `<div class="alert alert-${type}">${html}</div>`;
+    if (timeout) setTimeout(()=> feedback.style.display='none', timeout);
+  }
+
+  // ----- INITIALISATION DE LA CARTE -----
+  let ctx = null;
+  let map = null;
+  try {
+    // si MyMaps disponible, utilise-le (évite conflits)
+    if (window.MyMaps && typeof window.MyMaps.createMap === 'function') {
+      ctx = window.MyMaps.createMap({ elId: 'alert-map', center: [-2.5, 28.8], zoom: 12, defaultBase: 'osm' });
+      map = ctx.map;
+    } else {
+      // fallback direct Leaflet si MyMaps non présent
+      if (typeof L === 'undefined') {
+        throw new Error('Leaflet non chargé. Vérifie les CDN dans base.html.');
+      }
+      // assure que le conteneur a une hauteur
+      if(!mapEl.style.height) mapEl.style.height = '60vh';
+      map = L.map('alert-map').setView([-2.5, 28.8], 12);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OSM' }).addTo(map);
+    }
+  } catch (e) {
+    console.error('Erreur init map alert.html:', e);
+    if (mapEl) mapEl.innerHTML = `<div class="alert alert-danger">Erreur initialisation carte : ${e.message}</div>`;
+    return;
+  }
+
+  // marker de l'utilisateur (clic sur la carte)
+  let userMarker = null;
+  function setUserPos(lat, lng) {
+    inputLat.value = lat;
+    inputLng.value = lng;
+    posSpan.textContent = `${Number(lat).toFixed(6)}, ${Number(lng).toFixed(6)}`;
+    if (userMarker) {
+      userMarker.setLatLng([lat, lng]);
+    } else {
+      userMarker = L.circleMarker([lat, lng], {
+        radius: 8, color: '#e3342f', fillColor: '#fca5a5', weight: 2, fillOpacity: 0.9
+      }).addTo(map);
+      userMarker.bindPopup('Position sélectionnée').openPopup();
+    }
+  }
+
+  // écoute clic sur la carte
+  map.on('click', function (e) {
+    setUserPos(e.latlng.lat, e.latlng.lng);
+  });
+
+  // reset position
+  btnReset && btnReset.addEventListener('click', function () {
+    if (userMarker) { map.removeLayer(userMarker); userMarker = null; }
+    inputLat.value = ''; inputLng.value = ''; posSpan.textContent = 'aucune';
+  });
+
+  // fonction pour ajouter un marker "incident" sur la carte après création (utilise ctx si possible)
+  function addIncidentOnMap(incident, openPopup=true) {
+    const lat = parseFloat(incident.latitude);
+    const lng = parseFloat(incident.longitude);
+    if (isNaN(lat) || isNaN(lng)) return;
+    // si ctx disponible, utilise ctx.addIncidentMarker sinon crée marker direct
+    if (ctx && typeof ctx.addIncidentMarker === 'function') {
+      ctx.addIncidentMarker(incident, openPopup);
+    } else {
+      const m = L.circleMarker([lat, lng], {
+        radius: 7,
+        color: '#b91c1c',
+        fillColor: '#fca5a5',
+        weight: 2,
+        fillOpacity: 0.9
+      }).addTo(map);
+      const popupHtml = `<strong>${incident.date || ''} ${incident.time || ''}<br/><small>Cause: ${incident.cause || ''}</small>`;
+      m.bindPopup(popupHtml);
+      if (openPopup) m.openPopup();
+    }
+  }
+
+  // ----- SOUMISSION DU FORMULAIRE -----
+  form.addEventListener('submit', function (ev) {
+    ev.preventDefault();
+    feedback.style.display = 'none';
+
+    // collecte des valeurs
+    const fd = new FormData(form);
+    const payload = {};
+    for (const [k, v] of fd.entries()) {
+      if (v === null || v === '') continue;
+      // cast numériques
+      if (['houses_burned', 'injured', 'deaths'].includes(k)) {
+        payload[k] = Number(v);
+      } else {
+        payload[k] = v;
+      }
+    }
+
+    // validations minimales côté client
+    if (!payload.latitude || !payload.longitude) {
+      showFeedback('warning', 'Sélectionne un emplacement sur la carte (clic).');
+      return;
+    }
+
+    // POST JSON vers l'API
+    fetch('/api/incidents/', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': csrftoken
+      },
+      body: JSON.stringify(payload),
+    })
+    .then(async r => {
+      const text = await r.text();
+      let json = null;
+      try { json = text ? JSON.parse(text) : null; } catch(e) { json = text; }
+      if (r.status === 201 || r.status === 200) {
+        return json;
+      }
+      // gestion erreurs 400/401/403/500
+      if (r.status === 400) {
+        // erreurs de validation : json attendu
+        const msg = (typeof json === 'object') ? JSON.stringify(json) : (json || 'Erreur validation (400)');
+        throw { status: 400, message: msg, json };
+      } else if (r.status === 401 || r.status === 403) {
+        throw { status: r.status, message: 'Authentification requise (401/403). Pendant le dev, mets permission_classes = AllowAny ou fournis un token.' , json};
+      } else {
+        throw { status: r.status, message: 'Erreur serveur: ' + (json || r.status), json };
+      }
+    })
+    .then(created => {
+      showFeedback('success', 'Alerte envoyée — incident enregistré.');
+      // ajoute marker sur la carte
+      addIncidentOnMap(created, true);
+      // reset formulaire (mais garde la map)
+      form.reset();
+      if (userMarker) { userMarker.bindPopup('Incident signalé').openPopup(); }
+      // vider champs cachés
+      inputLat.value = ''; inputLng.value = ''; posSpan.textContent = 'aucune';
+    })
+    .catch(err => {
+      console.error('Erreur lors du POST /api/incidents/:', err);
+      if (err && err.status === 400 && err.json) {
+        // afficher erreurs validation
+        let html = '<b>Erreurs :</b><ul>';
+        if (typeof err.json === 'object') {
+          for (const k in err.json) {
+            html += `<li><b>${k}</b>: ${JSON.stringify(err.json[k])}</li>`;
+          }
+        } else {
+          html += `<li>${err.message}</li>`;
+        }
+        html += '</ul>';
+        showFeedback('danger', html, 8000);
+      } else if (err && (err.status === 401 || err.status === 403)) {
+        showFeedback('danger', 'Action non autorisée : ' + err.message + '<br/>Pendant le dev, autorise la création (AllowAny) ou configure token.');
+      } else {
+        const message = err && err.message ? err.message : 'Erreur inconnu. Regarde la console pour plus de détails.';
+        showFeedback('danger', message, 8000);
+      }
+    });
+  });
+
+}); // DOMContentLoaded
+</script>
 {% endblock %}
+

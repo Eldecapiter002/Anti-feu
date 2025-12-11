@@ -25,4 +25,43 @@
   </div>
 </div>
 
+  <script>
+  document.addEventListener('DOMContentLoaded', function(){
+    try {
+      const ctx = window.MyMaps.createMap({ elId: 'map', center: [-2.5, 28.8], zoom: 12, defaultBase: 'osm' });
+      // charger incidents et ignorer erreurs
+      ctx.loadIncidents().then(items => {
+        console.log('Incidents chargés (home):', items ? items.length : 0);
+      }).catch(e => console.error('Erreur loadIncidents home:', e));
+    } catch(e){
+      console.error(e);
+      const mapEl = document.getElementById('map');
+      if(mapEl) mapEl.innerHTML = '<div class="alert alert-danger">Erreur initialisation carte (voir console)</div>';
+    }
+
+    // Charger les statistiques
+    fetch('/api/incidents/stats/')
+      .then(response => response.json())
+      .then(data => {
+        const statsDiv = document.getElementById('stats');
+        if (data.by_cause && data.by_cause.length > 0) {
+          let statsHtml = '<ul class="list-group">';
+          data.by_cause.forEach(item => {
+            statsHtml += `<li class="list-group-item d-flex justify-content-between align-items-center">
+              ${item.cause}
+              <span class="badge bg-primary rounded-pill">${item.total}</span>
+            </li>`;
+          });
+          statsHtml += '</ul>';
+          statsDiv.innerHTML = statsHtml;
+        } else {
+          statsDiv.innerHTML = '<p class="text-muted">Aucune statistique disponible</p>';
+        }
+      })
+      .catch(e => {
+        console.error('Erreur chargement stats:', e);
+        document.getElementById('stats').innerHTML = '<div class="alert alert-danger">Erreur chargement statistiques</div>';
+      });
+  });
+  </script>
 {% endblock %}

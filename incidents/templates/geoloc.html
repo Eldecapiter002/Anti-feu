@@ -8,4 +8,19 @@
   </div>
 </div>
 
+  <script>
+  document.addEventListener('DOMContentLoaded', function(){
+    try {
+      const ctx = window.MyMaps.createMap({ elId: 'map', center: [-2.5, 28.8], zoom: 12, defaultBase: 'osm' });
+      // charger incidents et ignorer erreurs
+      ctx.loadIncidents().then(items => {
+        console.log('Incidents chargés (home):', items ? items.length : 0);
+      }).catch(e => console.error('Erreur loadIncidents home:', e));
+    } catch(e){
+      console.error(e);
+      const mapEl = document.getElementById('map');
+      if(mapEl) mapEl.innerHTML = '<div class="alert alert-danger">Erreur initialisation carte (voir console)</div>';
+    }
+  });
+  </script>
 {% endblock %}

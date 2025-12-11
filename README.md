@@ -21,3 +21,8 @@ Points utiles:
 - API incidents: `/api/incidents/`
 - Docs OpenAPI (Swagger): `/api/docs/`
 - Media uploads: `MEDIA_ROOT` défini sur le dossier `media/` à la racine du projet
+
+Si tu veux, je peux:
+- Lancer le serveur local et vérifier les endpoints
+- Ajouter des tests et lancer `pytest`
+- Intégrer une carte (Leaflet) dans la page d'accueil

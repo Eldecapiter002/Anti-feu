@@ -48,11 +48,10 @@ class FireIncidentViewSet(viewsets.ModelViewSet):
 
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_fields = {
-        'commune': ['exact', 'icontains'],
         'cause': ['exact'],
         'date': ['gte', 'lte', 'exact'],
     }
-    search_fields = ['commune','quartier','avenue','notes']
+    search_fields = ['cause']
     ordering_fields = ['date','houses_burned','created_at']
 
     @action(detail=False, methods=['get'])
@@ -64,6 +63,5 @@ class FireIncidentViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get'])
     def stats(self, request):
         # statistiques simples : nombre par commune et par cause
-        by_commune = FireIncident.objects.values('commune').annotate(total=Count('id')).order_by('-total')[:50]
         by_cause = FireIncident.objects.values('cause').annotate(total=Count('id')).order_by('-total')
-        return Response({'by_commune': list(by_commune), 'by_cause': list(by_cause)})
+        return Response({'by_cause': list(by_cause)})
